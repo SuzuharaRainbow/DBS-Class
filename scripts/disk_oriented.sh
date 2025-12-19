@@ -1,13 +1,29 @@
 echo "Test Disk-based Indexes: throughput & space cost"
-dataset=(fb_200M_uint64 books_200M_uint64 wiki_ts_200M_uint64 osm_cellids_200M_uint64)
+if [ -n "$DATASETS" ]; then
+    read -r -a dataset <<< "$DATASETS"
+else
+    dataset=(fb_200M_uint64 books_200M_uint64 wiki_ts_200M_uint64 osm_cellids_200M_uint64)
+fi
 
 fs=4096
 lookups=$3
 ps=4
-payloadbytes=(8)
+if [ -n "$PAYLOAD_BYTES" ]; then
+    read -r -a payloadbytes <<< "$PAYLOAD_BYTES"
+else
+    payloadbytes=(8)
+fi
 fetch_one_page=(0)
-total_range=(4 128 256 512 768 1024)
-lambda=(1.016 1.5 2 3 4 5)
+if [ -n "$TOTAL_RANGE_LIST" ]; then
+    read -r -a total_range <<< "$TOTAL_RANGE_LIST"
+else
+    total_range=(4 128 256 512 768 1024)
+fi
+if [ -n "$LAMBDA_LIST" ]; then
+    read -r -a lambda <<< "$LAMBDA_LIST"
+else
+    lambda=(1.016 1.5 2 3 4 5)
+fi
 suffix="_files"
 date=0929_reduced_models
 first=1

@@ -1,6 +1,7 @@
 #ifndef KEY_TYPE_H
 #define KEY_TYPE_H
 
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <vector>

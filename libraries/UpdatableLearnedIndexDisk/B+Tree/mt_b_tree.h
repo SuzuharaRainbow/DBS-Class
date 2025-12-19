@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cassert>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <vector>
 

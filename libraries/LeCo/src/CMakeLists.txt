@@ -5,6 +5,9 @@ add_library(docs SHARED bpacking.cpp varintencode.cpp varintdecode.cpp Utils.cpp
 #  .so/.a
 ## link_directories(.)
 
-
-
-
+target_include_directories(docs
+    PUBLIC ${Boost_INCLUDE_DIRS} ${GMP_INCLUDE_DIRS}
+)
+target_link_libraries(docs
+    PUBLIC ${Boost_LIBRARIES} Eigen3::Eigen ${GMP_LIBRARIES} ${GMPXX_LIBRARIES}
+)

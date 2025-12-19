@@ -6,6 +6,27 @@ results/*
 workloads/*/*
 ycsb_workloads/*
 
+# Local paper PDFs
+*.pdf
+
+# Large datasets downloaded locally (keep only scripts/README tracked)
+GRE_datasets/*
+!GRE_datasets/README.md
+!GRE_datasets/download.sh
+!GRE_datasets/generator.cpp
+!GRE_datasets/synthetic.sh
+
+# CMake in-source build artifacts (prefer out-of-source `build/`)
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/Makefile
+/libraries/LeCo/src/CMakeFiles/
+/libraries/LeCo/src/cmake_install.cmake
+/libraries/LeCo/thirdparty/fsst/CMakeFiles/
+/libraries/LeCo/thirdparty/fsst/cmake_install.cmake
+/libraries/LeCo/thirdparty/fsst/Makefile
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
