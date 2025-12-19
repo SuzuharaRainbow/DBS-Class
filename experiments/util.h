@@ -130,6 +130,7 @@ static inline ResultInfo<typename IndexType::K_> DoLookups(
 
   for (auto& t : thread) {
     CloseFiles(t.params.open_files);
+    FreeAlignedBuf(t.params.read_buf_);
   }
 
   return res_info;

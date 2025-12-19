@@ -132,6 +132,14 @@ static inline void CloseFiles(std::map<int, int>& files) {
   files.clear();
 }
 
+template <typename Key>
+static inline void FreeAlignedBuf(Key*& buf) {
+  if (buf != nullptr) {
+    free(buf);
+    buf = nullptr;
+  }
+}
+
 std::map<int, int> OpenFiles(const std::string& dir, int file_num) {
   std::map<int, int> files;
   for (int idx = 0; idx < file_num; idx++) {

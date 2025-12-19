@@ -25,7 +25,7 @@ else
     lambda=(1.016 1.5 2 3 4 5)
 fi
 suffix="_files"
-date=0929_reduced_models
+date=${DATE_TAG:-0929_reduced_models}
 first=1
 comp=0
 

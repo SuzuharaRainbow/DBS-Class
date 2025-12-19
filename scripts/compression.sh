@@ -5,19 +5,42 @@ echo "Test Disk-Oriented Indexes: throughput & space cost"
 # # Datasets with Varying Difficulty
 # dataset=(syn_curve_512g1_l6 syn_curve_512g2_l6 syn_curve_512g3_l6 syn_curve_512g4_l6 syn_curve_512g5_l6 syn_curve_512g6_l6 syn_curve_512g8_l6 syn_curve_512g10_l6 syn_curve_512g12_l6 syn_curve_512g13_l6 syn_curve_512g15_l6 syn_curve_512g17_l7 syn_curve_512g19_l1)
 
-# SOSD
-dataset=(fb_200M_uint64 books_200M_uint64 wiki_ts_200M_uint64 osm_cellids_200M_uint64)
+# SOSD (default) or override via env DATASETS="d1 d2 ..."
+if [ -n "$DATASETS" ]; then
+    read -r -a dataset <<< "$DATASETS"
+else
+    dataset=(fb_200M_uint64 books_200M_uint64 wiki_ts_200M_uint64 osm_cellids_200M_uint64)
+fi
 
 fs=4096
 lookups=$3
+if [ -n "${LOOKUP_COUNT}" ]; then
+    lookups=${LOOKUP_COUNT}
+fi
 ps=4
-payloadbytes=(8)
+if [ -n "$PAYLOAD_BYTES" ]; then
+    read -r -a payloadbytes <<< "$PAYLOAD_BYTES"
+else
+    payloadbytes=(8)
+fi
 fetch_one_page=(0)
-total_range=(16 256 512 768 1024)
-bs_range=(256 512 768 1024 1280)
-lambda=(1.05 2 3 4 5)
+if [ -n "$TOTAL_RANGE_LIST" ]; then
+    read -r -a total_range <<< "$TOTAL_RANGE_LIST"
+else
+    total_range=(16 256 512 768 1024)
+fi
+if [ -n "$BS_RANGE_LIST" ]; then
+    read -r -a bs_range <<< "$BS_RANGE_LIST"
+else
+    bs_range=(256 512 768 1024 1280)
+fi
+if [ -n "$LAMBDA_LIST" ]; then
+    read -r -a lambda <<< "$LAMBDA_LIST"
+else
+    lambda=(1.05 2 3 4 5)
+fi
 suffix="_files"
-date=0926_reduce_memory
+date=${DATE_TAG:-0926_reduce_memory}
 first=1
 comp=0
 
