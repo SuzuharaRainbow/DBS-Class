@@ -33,6 +33,7 @@ if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
 find_package(Boost REQUIRED COMPONENTS serialization iostreams)
+find_package(Threads REQUIRED)
 
 set(_gmp_prefixes
     $ENV{CONDA_PREFIX}
@@ -109,6 +110,7 @@ add_executable(LID run_microbenchmark.cpp)
 target_link_libraries(LID
     PRIVATE pgm_index
     PRIVATE leco
+    PRIVATE Threads::Threads
 )
 if (APPLE)
     # OpenMP disabled on Mac since m1 use osx-arm64 library

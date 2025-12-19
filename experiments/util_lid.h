@@ -125,6 +125,13 @@ int DirectIOOpen(const std::string& filename) {
 
 void DirectIOClose(int fd) { close(fd); }
 
+static inline void CloseFiles(std::map<int, int>& files) {
+  for (const auto& it : files) {
+    DirectIOClose(it.second);
+  }
+  files.clear();
+}
+
 std::map<int, int> OpenFiles(const std::string& dir, int file_num) {
   std::map<int, int> files;
   for (int idx = 0; idx < file_num; idx++) {

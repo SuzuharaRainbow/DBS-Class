@@ -122,6 +122,13 @@ ln -sf ../GRE_datasets/books datasets/books_200M_uint64
 DATASETS="books_200M_uint64" LOOKUP_COUNT=10000000 bash RunOnSingleDisk.sh
 ```
 
+默认会使用机器的在线 CPU 核心数进行并行验证（线程数由代码通过 `sysconf(_SC_NPROCESSORS_ONLN)` 获取）。
+如需固定线程数（例如为了与历史单线程日志对照），可通过环境变量覆盖：
+
+```bash
+LID_THREADS=1 DATASETS="books_200M_uint64" LOOKUP_COUNT=10000000 bash RunOnSingleDisk.sh
+```
+
 脚本支持通过环境变量覆盖部分参数（便于对齐论文或缩小实验）：
 
 - `DATASETS`：空格分隔的数据集列表（例如 `books_200M_uint64`）
@@ -190,4 +197,3 @@ bash scripts/compression.sh ./datasets/ ./results 10000000
 - 构建产物（`build/` 及 CMake 生成文件）
 
 这样可以保证推送到 GitHub 的是“代码与脚本”，而不是大文件与本地环境产物。
-

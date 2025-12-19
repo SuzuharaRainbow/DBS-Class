@@ -5,6 +5,7 @@ datasets/*/*/*/*.csv
 results/*
 workloads/*/*
 ycsb_workloads/*
+logs/*
 
 # Local paper PDFs
 *.pdf

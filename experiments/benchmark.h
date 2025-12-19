@@ -362,8 +362,10 @@ size_t Evaluate(typename IndexType::DataVev_& data,
     }
     std::cout << "TEST ON-DISK SEARCH OVER" << std::endl;
 #endif
-    ns = GetNsTime(
-        [&] { res_info = DoLookups<IndexType>(index, tmp_lookups, params); });
+    ns = GetNsTime([&] {
+      res_info = DoLookups<IndexType>(index, tmp_lookups, params,
+                                      GetConfiguredThreadCount());
+    });
 
     std::cout << "Evaluate index on disk:,";
   } else {
@@ -425,13 +427,14 @@ size_t Evaluate(typename IndexType::DataVev_& data,
   res_info.io_time += prof_io_time;
 #endif  // PROF_CPU_IO
 
-  std::cout << ", #threads:," << NUM_THREADS << ", throughput:,"
+  const size_t thread_num = params.is_on_disk_ ? GetConfiguredThreadCount() : 1;
+  std::cout << ", #threads:," << thread_num << ", throughput:,"
             << res_info.ops * 1.0 / ns * 1e9 << ", ops/sec, avg_io:,"
             << res_info.total_io * 1.0 / res_info.ops << ", total IO:,"
             << res_info.total_io << ", IOPS:,"
             << res_info.total_io * 1.0 / ns * 1e9 << ", Bandwidth:,"
             << params.page_bytes_ * 1.0 * res_info.fetch_page_num / ns
-            << ", GB/s, latency:," << res_info.latency_sum
+            << ", GB/s, latency:," << ns * 1.0 / res_info.ops
             << ", ns, predict time:,"
             << res_info.index_predict_time * 1.0 / res_info.ops << ", ns,"
             << " directIO file cpu time:,"

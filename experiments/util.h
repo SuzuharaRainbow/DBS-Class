@@ -1,16 +1,14 @@
 #ifndef EXPERIMENTS_UTIL_H_
 #define EXPERIMENTS_UTIL_H_
 
+#include <algorithm>
+#include <vector>
+
 #include "util_compression.h"
 #include "util_lid.h"
 #include "util_same_block_size.h"
 
-pthread_mutex_t mutex;
-
-#if NUM_THREADS > 1
-bool thread_finished = false;
-double first_thread_latency = 0;
-#endif
+// Multithreaded lookup execution uses pthreads; thread count is runtime-configured.
 
 /**
  * @brief Return the range in item-level: [start, stop)
@@ -34,11 +32,6 @@ static void* DoCoreLookups(void* thread_params) {
 
   res_info->latency_sum = GetNsTime([&] {
     for (uint64_t i = 0; i < size; i++) {
-#if NUM_THREADS > 1
-      if (thread_finished) {
-        break;
-      }
-#endif
       SearchRange range;
       res_info->index_predict_time += GetNsTime([&] {
         range = tmp_params.index.Lookup(tmp_params.lookups[i].first);
@@ -74,77 +67,70 @@ static void* DoCoreLookups(void* thread_params) {
       res_info->ops++;
     }
   });
-
-#if NUM_THREADS > 1
-  pthread_mutex_lock(&mutex);
-  if (!thread_finished) {
-    first_thread_latency = res_info->latency_sum * 1.0 / res_info->ops;
-    thread_finished = true;
-  }
-  pthread_mutex_unlock(&mutex);
-#endif
   return static_cast<void*>(res_info);
 }
 
 template <typename IndexType>
 static inline ResultInfo<typename IndexType::K_> DoLookups(
     const IndexType& index, const typename IndexType::DataVev_& lookups,
-    const Params<typename IndexType::K_>& params) {
+    const Params<typename IndexType::K_>& params, size_t thread_num) {
   typedef typename IndexType::K_ K;
   ResultInfo<K> res_info;
-  mutex = PTHREAD_MUTEX_INITIALIZER;
   uint64_t size = lookups.size();
-#if NUM_THREADS <= 1
-  ThreadParams<IndexType> tmp_params(params, index, lookups,
-                                     typename IndexType::param_t());
-  res_info = *static_cast<ResultInfo<K>*>(
-      DoCoreLookups<IndexType>(static_cast<void*>(&tmp_params)));
-  res_info.ops = size;
-#else
-  thread_finished = false;
-  pthread_t thread_handles[NUM_THREADS];
-  ThreadParams<IndexType> thread[NUM_THREADS];
-  ResultInfo<K> retval;
 
-  auto seg = size / NUM_THREADS;
-  for (int i = 0; i < NUM_THREADS - 1; i++) {
-    thread[i].lookups = typename IndexType::DataVev_(
-        lookups.begin() + i * seg, lookups.begin() + (i + 1) * seg);
+  thread_num = std::max<size_t>(1, thread_num);
+  if (thread_num == 1 || size == 0) {
+    ThreadParams<IndexType> tmp_params(params, index, lookups,
+                                       typename IndexType::param_t());
+    auto* tmp =
+        static_cast<ResultInfo<K>*>(DoCoreLookups<IndexType>(&tmp_params));
+    res_info = *tmp;
+    delete tmp;
+    res_info.ops = size;
+    res_info.latency_sum = size ? (res_info.latency_sum * 1.0 / size) : 0;
+    return res_info;
   }
-  thread[NUM_THREADS - 1].lookups = typename IndexType::DataVev_(
-      lookups.begin() + (NUM_THREADS - 1) * seg, lookups.end());
 
-  for (int i = 0; i < NUM_THREADS; i++) {
+  std::vector<pthread_t> thread_handles(thread_num);
+  std::vector<ThreadParams<IndexType>> thread(thread_num);
+
+  const uint64_t seg = size / thread_num;
+  for (size_t i = 0; i < thread_num; i++) {
+    const uint64_t begin = static_cast<uint64_t>(i) * seg;
+    const uint64_t end =
+        (i == thread_num - 1) ? size : static_cast<uint64_t>(i + 1) * seg;
+    thread[i].lookups =
+        typename IndexType::DataVev_(lookups.begin() + begin, lookups.begin() + end);
+  }
+
+  for (size_t i = 0; i < thread_num; i++) {
     thread[i].index = index;
     thread[i].params = params;
     thread[i].params.alloc();
     thread[i].params.open_files =
-        OpenFiles(params.data_dir_, params.open_files.size());
-    pthread_create(&thread_handles[i], NULL, DoCoreLookups<IndexType>,
+        OpenFiles(params.data_dir_, static_cast<int>(params.open_files.size()));
+    pthread_create(&thread_handles[i], nullptr, DoCoreLookups<IndexType>,
                    static_cast<void*>(&thread[i]));
   }
-  for (int i = 0; i < NUM_THREADS; i++) {
-    void* tmp_ret;
+
+  for (size_t i = 0; i < thread_num; i++) {
+    void* tmp_ret = nullptr;
     pthread_join(thread_handles[i], &tmp_ret);
-    retval = *static_cast<ResultInfo<K>*>(tmp_ret);
-    res_info.total_search_range += retval.total_search_range;
-    if (retval.max_search_range > res_info.max_search_range) {
-      res_info.max_search_range = retval.max_search_range;
-    }
-    res_info.res += retval.res;
-    res_info.fetch_page_num += retval.fetch_page_num;
-    res_info.total_io += retval.total_io;
-    res_info.ops += retval.ops;
-    res_info.latency_sum += retval.latency_sum;
-    res_info.index_predict_time += retval.index_predict_time;
+    auto* tmp = static_cast<ResultInfo<K>*>(tmp_ret);
+    res_info.total_search_range += tmp->total_search_range;
+    res_info.max_search_range = std::max(res_info.max_search_range, tmp->max_search_range);
+    res_info.res += tmp->res;
+    res_info.fetch_page_num += tmp->fetch_page_num;
+    res_info.total_io += tmp->total_io;
+    res_info.ops += tmp->ops;
+    res_info.index_predict_time += tmp->index_predict_time;
+    // latency_sum from each thread is thread-local wall time; not aggregated for reporting.
+    delete tmp;
   }
-#endif
-  pthread_mutex_destroy(&mutex);
-#if NUM_THREADS == 1
-  res_info.latency_sum = res_info.latency_sum * 1.0 / res_info.ops;
-#else
-  res_info.latency_sum = first_thread_latency;
-#endif
+
+  for (auto& t : thread) {
+    CloseFiles(t.params.open_files);
+  }
 
   return res_info;
 }

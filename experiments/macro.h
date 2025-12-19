@@ -12,12 +12,27 @@
 
 #define DIRECT_IO  // use direct io or mmap
 
-#ifdef MULTI_THREAD
 #include <pthread.h>
-#define NUM_THREADS 1  // # of threads
-#else
-#define NUM_THREADS 1  // single thread
-#endif
+#include <unistd.h>
+
+#include <algorithm>
+#include <cstdlib>
+
+inline size_t GetDefaultThreadCount() {
+  long n = sysconf(_SC_NPROCESSORS_ONLN);
+  if (n < 1) n = 1;
+  return static_cast<size_t>(n);
+}
+
+inline size_t GetConfiguredThreadCount() {
+  const char* env = std::getenv("LID_THREADS");
+  if (env && *env) {
+    char* end = nullptr;
+    auto v = std::strtoul(env, &end, 10);
+    if (end != env && v > 0) return static_cast<size_t>(v);
+  }
+  return GetDefaultThreadCount();
+}
 
 #define ALLOCATED_BUF_SIZE 10  // #pages (the size of buffer)
 
@@ -40,11 +55,8 @@
 
 void PrintMacro() {
   std::cout << "---------PRINT MACRO-------------\n";
-#ifdef MULTI_THREAD
-  std::cout << "Use [multiple threads]: " << NUM_THREADS << std::endl;
-#else
-  std::cout << "[Single threads]" << std::endl;
-#endif  // MULTI_THREAD
+  std::cout << "Threads: " << GetConfiguredThreadCount()
+            << " (override with env LID_THREADS)" << std::endl;
 
 #ifdef DIRECT_IO
   std::cout << "Use [direct IO] to fetch pages on disk." << std::endl;

@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "./util.h"
 
@@ -9,11 +10,6 @@
 #define EXPERIMENTS_TEST_DISK_H_
 
 pthread_mutex_t mutex_task;
-
-#if NUM_THREADS > 1
-bool test_thread_finished = false;
-double first_latency = 0;
-#endif
 
 template <typename IndexType>
 static void* TestDiskCore(void* thread_params) {
@@ -28,11 +24,6 @@ static void* TestDiskCore(void* thread_params) {
 
   res_info->latency_sum = GetNsTime([&] {
     for (uint64_t i = 0; i < size; i++) {
-#if NUM_THREADS > 1
-      if (test_thread_finished) {
-        break;
-      }
-#endif
       SearchRange range = {tmp_params.lookups[i].second - tmp_params.diff,
                            tmp_params.lookups[i].second + 1};
       if (tmp_params.lookups[i].second < tmp_params.diff) {
@@ -53,15 +44,6 @@ static void* TestDiskCore(void* thread_params) {
       res_info->ops++;
     }
   });
-
-#if NUM_THREADS > 1
-  pthread_mutex_lock(&mutex_task);
-  if (!test_thread_finished) {
-    first_latency = res_info->latency_sum * 1.0 / res_info->ops;
-    test_thread_finished = true;
-  }
-  pthread_mutex_unlock(&mutex_task);
-#endif
   return static_cast<void*>(res_info);
 }
 
@@ -88,62 +70,61 @@ void TestDisk(const typename IndexType::DataVev_& data,
 
   ResultInfo<typename IndexType::K_> res_info;
   mutex_task = PTHREAD_MUTEX_INITIALIZER;
+  const size_t thread_num =
+      params.is_on_disk_ ? GetConfiguredThreadCount() : 1;
   uint64_t ns = GetNsTime([&] {
-#if NUM_THREADS == 1
-    ThreadParams<IndexType> tmp_params(params, IndexType(), tmp_lookups, diff);
-    res_info = *static_cast<ResultInfo<typename IndexType::K_>*>(
-        TestDiskCore<IndexType>(static_cast<void*>(&tmp_params)));
-    res_info.ops = lookup_num;
-#else
-    test_thread_finished = false;
-    pthread_t thread_handles[NUM_THREADS];
-    ThreadParams<IndexType> thread[NUM_THREADS];
-    ResultInfo<typename IndexType::K_> retval;
-
-    auto seg = lookup_num / NUM_THREADS;
-    for (int i = 0; i < NUM_THREADS - 1; i++) {
-      thread[i].lookups = typename IndexType::DataVev_(
-          tmp_lookups.begin() + i * seg, tmp_lookups.begin() + (i + 1) * seg);
+    const size_t tn = std::max<size_t>(1, thread_num);
+    if (tn == 1 || lookup_num == 0) {
+      ThreadParams<IndexType> tmp_params(params, IndexType(), tmp_lookups, diff);
+      auto* tmp =
+          static_cast<ResultInfo<typename IndexType::K_>*>(TestDiskCore<IndexType>(
+              static_cast<void*>(&tmp_params)));
+      res_info = *tmp;
+      delete tmp;
+      res_info.ops = lookup_num;
+      return;
     }
-    thread[NUM_THREADS - 1].lookups = typename IndexType::DataVev_(
-        tmp_lookups.begin() + (NUM_THREADS - 1) * seg, tmp_lookups.end());
 
-    for (int i = 0; i < NUM_THREADS; i++) {
+    std::vector<pthread_t> thread_handles(tn);
+    std::vector<ThreadParams<IndexType>> thread(tn);
+
+    const uint64_t seg = lookup_num / tn;
+    for (size_t i = 0; i < tn; i++) {
+      const uint64_t begin = static_cast<uint64_t>(i) * seg;
+      const uint64_t end =
+          (i == tn - 1) ? lookup_num : static_cast<uint64_t>(i + 1) * seg;
+      thread[i].lookups = typename IndexType::DataVev_(
+          tmp_lookups.begin() + begin, tmp_lookups.begin() + end);
       thread[i].params = params;
       thread[i].diff = diff;
-      pthread_create(&thread_handles[i], NULL, TestDiskCore<IndexType>,
+      pthread_create(&thread_handles[i], nullptr, TestDiskCore<IndexType>,
                      static_cast<void*>(&thread[i]));
     }
-    for (int i = 0; i < NUM_THREADS; i++) {
-      void* tmp_ret;
+
+    for (size_t i = 0; i < tn; i++) {
+      void* tmp_ret = nullptr;
       pthread_join(thread_handles[i], &tmp_ret);
-      retval = *static_cast<ResultInfo<typename IndexType::K_>*>(tmp_ret);
-      res_info.total_search_range += retval.total_search_range;
-      if (retval.max_search_range > res_info.max_search_range) {
-        res_info.max_search_range = retval.max_search_range;
-      }
-      res_info.res += retval.res;
-      res_info.fetch_page_num += retval.fetch_page_num;
-      res_info.total_io += retval.total_io;
-      res_info.ops += retval.ops;
-      res_info.latency_sum += retval.latency_sum;
+      auto* tmp = static_cast<ResultInfo<typename IndexType::K_>*>(tmp_ret);
+      res_info.total_search_range += tmp->total_search_range;
+      res_info.max_search_range =
+          std::max(res_info.max_search_range, tmp->max_search_range);
+      res_info.res += tmp->res;
+      res_info.fetch_page_num += tmp->fetch_page_num;
+      res_info.total_io += tmp->total_io;
+      res_info.ops += tmp->ops;
+      delete tmp;
     }
-#endif
   });
   pthread_mutex_destroy(&mutex_task);
 
-#if NUM_THREADS == 1
-  double latency = res_info.latency_sum * 1.0 / res_info.ops;
-#else
-  double latency = first_latency;
-#endif
+  double latency = ns * 1.0 / res_info.ops;
 
 #define FAST_CHECK
 #ifdef FAST_CHECK
   std::ofstream output("results/testDisk/prof_res.csv",
                        std::ios::app | std::ios::out);
   // output << "#threads, diff, fetch strategy, ops, throughput, latency\n";
-  output << NUM_THREADS << ", " << diff << ", " << params.fetch_strategy_
+  output << thread_num << ", " << diff << ", " << params.fetch_strategy_
          << ", " << res_info.ops << ", " << res_info.ops * 1.0 / ns * 1e9
          << ", " << latency << "\n";
 
@@ -163,7 +144,7 @@ void TestDisk(const typename IndexType::DataVev_& data,
     std::cout << ", FIND WRONG res:," << res_info.res << ", actual res:,"
               << actual_res;
   }
-  std::cout << ",,,,, #threads:," << NUM_THREADS << ", throughput:,"
+  std::cout << ",,,,, #threads:," << thread_num << ", throughput:,"
             << res_info.ops * 1.0 / ns * 1e9 << ", ops/sec, avg_io:,"
             << res_info.total_io * 1.0 / res_info.ops << ", total IO:,"
             << res_info.total_io << ", IOPS:,"
