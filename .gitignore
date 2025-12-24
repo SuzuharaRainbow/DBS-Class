@@ -3,6 +3,10 @@ datasets/*
 datasets/*/*.csv
 datasets/*/*/*/*.csv
 results/*
+!results/.gitkeep
+!results/*.csv
+!results/*.md
+!results/*.log
 workloads/*/*
 ycsb_workloads/*
 logs/*

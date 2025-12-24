@@ -1,199 +1,139 @@
-# Efficient-Disk-Learned-Index（DBS 课程复现说明）
+# Efficient-Disk-Learned-Index（DBS 课程复现工程）
 
-本仓库基于 SIGMOD 2024 论文 **Making In-Memory Learned Indexes Efficient on Disk** 的开源实现，用于在磁盘场景下评测 learned index。
+本仓库基于 SIGMOD 2024 论文 **Making In-Memory Learned Indexes Efficient on Disk** 的开源实现，用于在“磁盘/页 I/O”视角下评测 learned index，并配套了我们用于 DBS 课程作业的复现脚本与结果汇总。
 
-本文档替换原始 README，重点说明我们如何在 **amzn（Amazon books）** 数据集上复现“可以与论文数值完全对照/高度一致”的指标：**Table 3（模型数量节省）**与 **Table 4（索引内存占用）**，以及对应的脚本、参数与结果文件长什么样。
+- 完整汇报：`REPORT.md`（对应 `REPORT.docx`）
+- 复现重点：尽量复现“与硬件弱相关/可严格对照”的指标（模型数量、模型内存等），而不是追求吞吐/延迟绝对值逐点一致
 
-> 重要说明：论文里很多吞吐（ops/s）、TPC-C（txn/s）等指标与硬件强相关，不追求绝对数值逐点一致；但**模型数量（#Models）**、**模型内存占用（MiB）**、以及按论文相同 Rp 档位（Expected #I/O pages）对齐后的对照表，通常是可以做到与论文极其接近甚至一致的。
+## 1) 我们现在复现到什么程度？
 
----
+结论：**Table 3 + Table 4 的数值基本可以认为“复现成功（误差≈0）”**；其它更偏“系统/硬件”类的指标（吞吐、YCSB、TPC-C）只做了部分工程支持，不作为严格对照目标。
 
-## 1. 我们复现了哪些“可完全对照”的指标？
+### 1.1 可严格对照（基本复现）
 
-我们目前完成了 **amzn（Amazon books）** 的 lookup-only microbenchmark 复现，且可与论文表格直接对照：
+- **Table 3 / Models Saving（#Models w/o vs w/）**：`fb` + `amzn`
+  - 汇总文件：`results/fb_table3_reproduction.csv`、`results/books_table3_reproduction.csv`
+- **Table 4 / Memory Usage（MiB）**：`fb` + `amzn` + `wiki` + `osmc`
+  - 汇总文件：`results/table4_reproduction_all.csv`
+- **一键对照表（Paper vs Ours）**：可直接读我们生成的快照
+  - `results/paper_table34_paper_vs_ours.md`
 
-### 1.1 Table 3：Models Saving（#Models w/o vs w/）
+### 1.2 半严格对照（趋势复现，部分数值仍有偏差）
 
-论文 Table 3 比较的是：在“期望 I/O 页数（Expected #I/O pages / Rp）相同”的条件下，
-引入 **disk-based zero intervals（G3）** 后，模型数量（#Models）能减少多少。
+- **Fig.9（synthetic）/ Ratio-to-PGM**：我们提供了“论文标注值 vs 复现值”的对照表
+  - 论文标注值（从 PDF 抽取的数值）：`results/synthetic_fig9_paper_ratios.csv`
+  - 我们复现值（从日志汇总）：`results/synthetic_fig9_reproduction.csv`
+  - 对照表：`results/synthetic_fig9_paper_vs_ours.md`
 
-在本代码中，我们用两组索引对照来获得 “w/o（原始）” vs “w/（应用 G3）”：
+对 Fig.9 来说，`Rp=1.05` 组更接近论文标注值；`Rp=5` 组存在系统性偏差（偏差方向一致，主要体现在比值更小），更像是“实现/参数/统计口径”的差异而不是随机噪声，因此在 README/报告中我们把它标为“趋势复现、数值待进一步对齐”。
 
-- **PGM-Index**
-  - w/o：`PGM Index Page_*`（脚本里调用的 `PGM-Index-Page`）
-  - w/ ：`DI-V1_*`（脚本里调用的 `DI-V1`）
-- **RadixSpline**
-  - w/o：`RadixSplineDisk-*`（脚本里调用的 `RadixSpline`）
-  - w/ ：`RS-Disk-Oriented-*`（脚本里调用的 `RS-DISK-ORIENTED`）
+### 1.3 硬件强相关（不作为严格复现目标）
 
-输出中会出现 `#model:`、以及（对 PGM）“on disk/origin version”两种 splitting 的统计，能直接对齐论文 Table 3 的 base/improved models。
+- 吞吐（ops/s）、IOPS、延迟（ns）等：用于验证趋势与 sanity check，但不追求与论文逐点一致
+- 多线程 YCSB：仓库内有 harness（`scripts/multi_threaded/`、`build/MULTI-HYBRID-LID`），但未完成整套论文级别复现
 
-### 1.2 Table 4：Memory Usage（MiB）
+## 2) 快速开始（推荐）
 
-论文 Table 4 比较的是：在吞吐相近的条件下，不同索引设计的 **模型内存占用（MiB）**。
-
-在本仓库中对应的索引/实现大致为：
-
-- `Cpr_PGM`：Compressed PGM（`CompressedPGM`）
-- `Cpr_PGM_D`：压缩后的 disk-based learned index 版本（脚本里用 `DI-V3`）
-- `CprLeCo_PGM_D`：LeCo + 压缩的 disk-based learned index（脚本里用 `DI-V4`）
-- `Zone Map`：`BinarySearch`（zone map 思路）
-- `LeCo-based Zone Map`：`LecoZonemap`
-
-> 论文 Table 4 的 “amzn 列” 是我们的主要对照目标；其它数据集列（fb/wiki/osmc）尚待补齐运行。
-
----
-
-## 2. 数据集命名与论文对应关系
-
-论文数据集名称与本仓库文件名的对应关系如下（我们当前复现的是 amzn 这一行/列）：
-
-| 论文名称 | 本仓库数据文件名 | 备注 |
-|---|---|---|
-| `amzn` | `datasets/books_200M_uint64` | Amazon books（我们当前已复现） |
-| `fb` | `datasets/fb_200M_uint64` | Facebook |
-| `wiki` | `datasets/wiki_ts_200M_uint64` | Wikipedia edits time-id |
-| `osmc` / `osm` | `datasets/osm_cellids_200M_uint64` | OpenStreetMap cell ids |
-
----
-
-## 3. 环境与构建
-
-### 3.1 依赖
-
-构建由 `CMakeLists.txt` 管理，核心依赖包括：
-
-- CMake（建议 ≥ 3.16）
-- C++17 编译器（gcc/clang）
-- `Eigen3`
-- `Snappy`
-- `Boost`（`serialization`、`iostreams`）
-- `GMP`（`gmp`、可选 `gmpxx`）
-- `OpenMP`（Linux 下通常由编译器提供）
-
-### 3.2 编译
+### 2.1 构建
 
 ```bash
 bash scripts/build_benchmark.sh
 ```
 
-成功后 `build/` 下会生成关键可执行文件：
+成功后会生成关键可执行文件：
 
-- `build/LID`：lookup-only microbenchmark（我们复现 Table 3/4 的核心程序）
+- `build/LID`：lookup-only microbenchmark（Table 3/4、Fig.9 汇总日志来源）
+- `build/MULTI-HYBRID-LID`：多线程 YCSB harness（非严格复现目标）
 
----
+### 2.2 数据集放置
 
-## 4. 数据集准备（amzn/books）
+论文与本仓库数据文件命名对应关系：
 
-### 4.1 数据格式
+| 论文名称 | 本仓库路径（文件） |
+|---|---|
+| `amzn` | `datasets/books_200M_uint64` |
+| `fb` | `datasets/fb_200M_uint64` |
+| `wiki` | `datasets/wiki_ts_200M_uint64` |
+| `osmc` / `osm` | `datasets/osm_cellids_200M_uint64` |
 
-本仓库读的数据集是 **SOSD 风格二进制格式**：
+数据格式为 SOSD 风格二进制：
 
 - 文件头：`uint64_t size`
-- 后续：`size` 个 `uint64_t` keys（可选再带 payload，但本仓库默认从 key 文件生成 payload）
+- 后续：`size` 个 `uint64_t` keys
 
-### 4.2 放置数据文件
-
-将 Amazon/books 数据放到：
-
-```text
-datasets/books_200M_uint64
-```
-
-如果你使用本仓库提供的 `GRE_datasets/` 下载文件，建议用软链接：
+如果你用 `GRE_datasets/` 下载文件，建议用软链接（示例以 books 为例）：
 
 ```bash
-ln -sf ../GRE_datasets/books datasets/books_200M_uint64
+ln -sfn ../GRE_datasets/books datasets/books_200M_uint64
 ```
 
----
+## 3) 复现实验入口
 
-## 5. 复现 Table 3（amzn，lookup-only microbenchmark）
+### 3.1 Table 3（Models Saving）
 
-### 5.1 运行脚本与参数
-
-使用我们的脚本链路：
+入口脚本链路：
 
 - `RunOnSingleDisk.sh` → `scripts/disk_oriented.sh` → `./build/LID`
 
-推荐只跑 amzn（books）一个数据集：
+仅跑 books（amzn）：
 
 ```bash
 DATASETS="books_200M_uint64" LOOKUP_COUNT=10000000 bash RunOnSingleDisk.sh
 ```
 
-默认会使用机器的在线 CPU 核心数进行并行验证（线程数由代码通过 `sysconf(_SC_NPROCESSORS_ONLN)` 获取）。
-如需固定线程数（例如为了与历史单线程日志对照），可通过环境变量覆盖：
+仅跑 fb + books：
+
+```bash
+DATASETS="fb_200M_uint64 books_200M_uint64" LOOKUP_COUNT=10000000 bash RunOnSingleDisk.sh
+```
+
+### 3.2 Table 4（Memory Usage）
+
+入口脚本：
+
+- `scripts/compression.sh`
+
+只跑 books（amzn）：
+
+```bash
+DATASETS="books_200M_uint64" LOOKUP_COUNT=10000000 bash scripts/compression.sh ./datasets/ ./results 10000000
+```
+
+> `scripts/compression.sh` 会把 stdout 追加写到 `results/compression/res_<date>_*.csv`（目录默认不入库），Table 4 的汇总来自我们从这些日志里提取出来的 `results/table4_reproduction_all.csv`。
+
+## 4) 多核加速（我们做了什么，怎么用）
+
+### 4.1 `build/LID` 的并行 lookup
+
+在 on-disk 评测路径中，`build/LID` 的 lookup 执行支持用 pthread 并行拆分查询（每个线程各自打开文件句柄）。
+
+- 默认线程数：`sysconf(_SC_NPROCESSORS_ONLN)`（即在线 CPU 核心数）
+- 手动指定线程数：环境变量 `LID_THREADS`
+
+示例（固定为单线程以便与历史日志逐行对照）：
 
 ```bash
 LID_THREADS=1 DATASETS="books_200M_uint64" LOOKUP_COUNT=10000000 bash RunOnSingleDisk.sh
 ```
 
-脚本支持通过环境变量覆盖部分参数（便于对齐论文或缩小实验）：
+注意：并行 lookup 的加速幅度受磁盘/IO 限制很大；在单块盘上更容易出现“线程多了但吞吐不涨”的情况（甚至回退），这属于预期现象。
 
-- `DATASETS`：空格分隔的数据集列表（例如 `books_200M_uint64`）
-- `LOOKUP_COUNT`：lookup 数量（默认 10,000,000）
-- `PAYLOAD_BYTES`、`TOTAL_RANGE_LIST`、`LAMBDA_LIST`：更细粒度控制（见 `scripts/disk_oriented.sh`）
+### 4.2 OpenMP（构建/训练阶段的并行）
 
-### 5.2 结果输出长什么样
+部分索引构建阶段使用 OpenMP；可用 `OMP_NUM_THREADS` 控制 OpenMP 并行度（若系统/编译器未启用 OpenMP，则相关逻辑会退化为单线程）。
 
-运行后会生成（或追加写入）类似文件：
+## 5) 结果文件与“入库策略”
 
-- `results/diskOriented/res_0929_reduced_models_8B_fetch0_books_200M_uint64.csv`
+为了让仓库可复现且不塞大文件，我们的约定是：
 
-注意：这个文件名里的 `0929_reduced_models` 来自脚本内的 `date` 字段（`scripts/disk_oriented.sh`），每次运行会用 `>>` 追加输出。
+- ✅ 提交“小而关键”的汇总/对照文件：`results/*.csv`、`results/*.md`
+- ⛔ 不提交大文件：数据集（`datasets/`、`GRE_datasets/`）、运行日志（`results/compression/`、`results/diskOriented/`）、构建产物（`build/`）
+- ⛔ 不提交论文 PDF（`*.pdf`）：如需跑“从 PDF 自动解析 Table 3/4 数值”的脚本，请自行下载并放到仓库根目录（默认文件名 `learned-index-disk-sigmod24.pdf`）
 
-文件内容并不是“纯 CSV”，而是 **stdout 日志 + 部分 CSV 行混合**，典型片段包含：
+## 6) 生成/更新对照表（可选）
 
-- `GetModelNum of, <IndexName>, ..., #model:,<N>, space/MiB:,<M>`
-- `Evaluate index on disk:,<IndexName>, ..., avg_page:,<Rp>, ... throughput:,<ops/sec>`
-
-对照 Table 3 时，核心看 `#model:`：
-
-- PGM base（w/o）：`PGM Index Page_*` 的 `#model`
-- PGM improved（w/）：`DI-V1_*` 的 `#model`（或同段日志里的 “after pgm splitting (on disk)”）
-- RS base（w/o）：`RadixSplineDisk-*` 的 `#model`
-- RS improved（w/）：`RS-Disk-Oriented-*` 的 `#model`
-
----
-
-## 6. 复现 Table 4（amzn，模型内存占用）
-
-Table 4 需要跑压缩 learned index 与 zone-map 相关对比，脚本入口在：
-
-- `scripts/compression.sh`
-
-该脚本默认会跑多数据集；如果你只想跑 amzn/books，推荐临时在脚本里把 `dataset=(...)` 改成只保留 `books_200M_uint64`，然后运行：
+如果你本地放了论文 PDF（默认 `learned-index-disk-sigmod24.pdf`），可以自动生成 “Table 3/4: Paper vs Ours” 对照表：
 
 ```bash
-bash scripts/compression.sh ./datasets/ ./results 10000000
+python3 scripts/generate_one_table_comparison.py > results/paper_table34_paper_vs_ours.md
 ```
-
-输出会写入：
-
-- `results/compression/res_<date>_8B_fetch0_books_200M_uint64.csv`（stdout 追加）
-
-对照 Table 4 时，关注各 index 的 `space/MiB`（或 `in-memory_size`）字段。
-
----
-
-## 7. 我们目前已经复现到的范围
-
-截至目前：
-
-- ✅ **amzn/books** 的 **Table 3（#Models）** 与 **Table 4（MiB）** 已复现，且与论文数值高度一致/可直接对照。
-- ⏳ 其它 SOSD 数据集（fb/wiki/osm）同样可以按本 README 跑 microbenchmark，但我们尚未补齐输出文件。
-- ⏳ YCSB / 多线程 / TPC-C 等实验属于“硬件强相关”或需要额外 workload/harness 输入（例如 `ycsb_workloads/`），尚待补充。
-
----
-
-## 8. 关于结果文件是否入库
-
-本仓库已配置 `.gitignore`，默认不会提交：
-
-- 数据集（`datasets/`、`GRE_datasets/` 下载的大文件）
-- 运行结果与日志（`results/`）
-- 本地 PDF（`*.pdf`）
-- 构建产物（`build/` 及 CMake 生成文件）
-
-这样可以保证推送到 GitHub 的是“代码与脚本”，而不是大文件与本地环境产物。

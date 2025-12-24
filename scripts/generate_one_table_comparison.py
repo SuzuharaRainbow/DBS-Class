@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import csv
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,7 +144,27 @@ def max_abs_rel(paper: list[int] | list[float], ours: list[int] | list[float]) -
 
 
 def main() -> int:
-    pdf_path = Path("learned-index-disk-sigmod24.pdf")
+    ap = argparse.ArgumentParser(
+        description="Generate a single Markdown table comparing paper Table 3/4 with our reproduced numbers."
+    )
+    ap.add_argument(
+        "--pdf",
+        type=Path,
+        default=Path("learned-index-disk-sigmod24.pdf"),
+        help="Path to the paper PDF (default: learned-index-disk-sigmod24.pdf).",
+    )
+    args = ap.parse_args()
+
+    # Silence noisy PDF parsing warnings from pdfminer.
+    logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
+    pdf_path = args.pdf
+    if not pdf_path.exists():
+        raise SystemExit(
+            f"PDF not found: {pdf_path}\n"
+            "Hint: download the paper PDF and pass it via --pdf, e.g.\n"
+            "  python3 scripts/generate_one_table_comparison.py --pdf /path/to/paper.pdf"
+        )
     paper_t3 = parse_paper_table3(pdf_path)
     paper_t4 = parse_paper_table4(pdf_path)
 
@@ -259,4 +281,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

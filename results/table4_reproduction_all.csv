@@ -1,0 +1,17 @@
+Dataset,Index,Models,Space (MiB)
+fb_200M_uint64,Cpr_PGM,4833828,51.6756
+fb_200M_uint64,CprLeCo_PGM_D,742412,4.08445
+fb_200M_uint64,ZoneMap,781250,5.96046
+fb_200M_uint64,LeCo-basedZoneMap,2101,2.09275
+books_200M_uint64,Cpr_PGM,2918929,30.4945
+books_200M_uint64,CprLeCo_PGM_D,752387,6.23838
+books_200M_uint64,ZoneMap,781250,5.96046
+books_200M_uint64,LeCo-basedZoneMap,8055,4.22024
+wiki_ts_200M_uint64,Cpr_PGM,889033,9.50606
+wiki_ts_200M_uint64,CprLeCo_PGM_D,739010,3.20731
+wiki_ts_200M_uint64,ZoneMap,781250,5.96046
+wiki_ts_200M_uint64,LeCo-basedZoneMap,7039,1.05607
+osm_cellids_200M_uint64,Cpr_PGM,3212443,34.6521
+osm_cellids_200M_uint64,CprLeCo_PGM_D,738438,6.61743
+osm_cellids_200M_uint64,ZoneMap,781250,5.96046
+osm_cellids_200M_uint64,LeCo-basedZoneMap,8055,4.59157
